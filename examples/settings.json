@@ -1,0 +1,8 @@
+{
+  "config": {
+    "streams": [
+      { "url": "udp://127.0.0.1:9123", "TGID": 58914, "shortName": "county" },
+      { "url": "udp://127.0.0.1:9124", "TGID": 0, "sendJSON": true, "sendCallStart": true, "sendCallEnd": true }
+    ]
+  }
+}
