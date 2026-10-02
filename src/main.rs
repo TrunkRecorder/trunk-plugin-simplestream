@@ -40,6 +40,7 @@ struct Stream {
     ///
     /// The short name of the system to stream. Leave it empty for every system.
     #[serde(rename = "shortName")]
+    #[schemars(extend("x-system" = true))]
     short_name: String,
     /// Talkgroup in each packet
     ///
