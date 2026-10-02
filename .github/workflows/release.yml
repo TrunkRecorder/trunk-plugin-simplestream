@@ -5,6 +5,10 @@
 #   <id>-<version>.manifest.json     what `<id> --describe` prints
 #   SHA256SUMS                       what the registry pins
 #
+# Each file also gets a build provenance attestation: a signed record that
+# GitHub Actions built it from this repository at the tagged commit. Check
+# one with `gh attestation verify <file> --repo <owner>/<repo>`.
+#
 # The names are what the recorder's installer looks for: keep them.
 name: Release
 
@@ -109,6 +113,11 @@ jobs:
   release:
     needs: [meta, build]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      # For the provenance attestations.
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -116,6 +125,10 @@ jobs:
       - name: Checksums
         run: |
           cd dist && sha256sum * > SHA256SUMS && cat SHA256SUMS
+      - name: Build provenance
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-checksums: dist/SHA256SUMS
       - name: Release notes (this version's section of CHANGELOG.md, if there is one)
         run: |
           v="${{ needs.meta.outputs.version }}"
