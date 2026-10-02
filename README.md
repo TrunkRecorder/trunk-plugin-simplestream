@@ -1,6 +1,6 @@
 # simplestream for Trunk Recorder Pro
 
-Streams the audio of calls as [Trunk Recorder Pro](https://github.com/TrunkRecorder/trunk-recorder-lite)
+Streams the audio of calls as [Trunk Recorder Pro](https://github.com/TrunkRecorder/trunk-recorder-pro)
 records them to other programs, over UDP or TCP. It does what Trunk
 Recorder's simplestream plugin does, in the same packet formats, so programs
 written for that work with this.

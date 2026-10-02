@@ -1,5 +1,5 @@
 # Push a tag v<version> (the version in Cargo.toml) to build the plugin for
-# every platform Trunk Recorder Lite runs on and publish a GitHub release:
+# every platform Trunk Recorder Pro runs on and publish a GitHub release:
 #
 #   <id>-<version>-<target>.tar.gz   (.zip on Windows) the executable, README, LICENSE
 #   <id>-<version>.manifest.json     what `<id> --describe` prints
