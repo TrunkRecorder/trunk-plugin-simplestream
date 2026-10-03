@@ -100,8 +100,6 @@ struct Out {
 
 struct SimpleStream {
     outs: Vec<Out>,
-    /// Systems' short names, by the number audio chunks carry for them (this run's).
-    systems: HashMap<u16, String>,
     /// The calls recording now.
     calls: HashMap<u32, CallInfo>,
 }
@@ -134,8 +132,7 @@ impl Plugin for SimpleStream {
             host.info(format!("streaming {what}{of} to {dest}"));
             outs.push(Out { stream: s.clone(), sender: Sender::start(dest, status.clone()) });
         }
-        let systems = setup.systems.iter().map(|s| (s.index, s.short_name.clone())).collect();
-        Ok(SimpleStream { outs, systems, calls: HashMap::new() })
+        Ok(SimpleStream { outs, calls: HashMap::new() })
     }
 
     fn call_start(&mut self, call: CallInfo) {
@@ -167,7 +164,7 @@ impl Plugin for SimpleStream {
     fn audio(&mut self, chunk: AudioChunk) {
         let pcm = base64::decode(&chunk.pcm);
         let call = self.calls.get(&chunk.call_id);
-        let short_name = self.short_name(chunk.system);
+        let short_name = chunk.short_name.as_str();
         let talkgroups = call.map_or(vec![chunk.talkgroup], talkgroups);
         for o in self.outs.iter().filter(|o| o.stream.wants_system(short_name)) {
             let Some(tg) = o.stream.talkgroup_of(&talkgroups) else { continue };
@@ -219,12 +216,6 @@ impl Plugin for SimpleStream {
         for o in self.outs.drain(..) {
             o.sender.finish(deadline);
         }
-    }
-}
-
-impl SimpleStream {
-    fn short_name(&self, system: u16) -> &str {
-        self.systems.get(&system).map_or("", String::as_str)
     }
 }
 
@@ -282,7 +273,7 @@ mod tests {
     }
 
     fn audio(id: u32, tg: u32, samples: &[i16]) -> HostMessage {
-        HostMessage::Audio(AudioChunk::new(id, 0, tg, 8000, samples))
+        HostMessage::Audio(AudioChunk { short_name: "sys1".into(), ..AudioChunk::new(id, 0, tg, 8000, samples) })
     }
 
     fn hello(streams: Value) -> HostMessage {
