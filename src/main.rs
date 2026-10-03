@@ -100,7 +100,7 @@ struct Out {
 
 struct SimpleStream {
     outs: Vec<Out>,
-    /// Systems' short names, by index.
+    /// Systems' short names, by the number audio chunks carry for them (this run's).
     systems: HashMap<u16, String>,
     /// The calls recording now.
     calls: HashMap<u32, CallInfo>,
@@ -142,7 +142,7 @@ impl Plugin for SimpleStream {
         if !call.recording {
             return;
         }
-        let short_name = self.short_name(call.system).to_string();
+        let short_name = call.short_name.clone();
         let talkgroups = talkgroups(&call);
         for o in self.outs.iter().filter(|o| o.stream.send_json && o.stream.send_call_start && o.stream.wants_system(&short_name)) {
             if o.stream.talkgroup_of(&talkgroups).is_some() {
@@ -192,7 +192,7 @@ impl Plugin for SimpleStream {
 
     fn call_end(&mut self, call: CallInfo) {
         let Some(started) = self.calls.remove(&call.id) else { return };
-        let short_name = self.short_name(call.system).to_string();
+        let short_name = call.short_name.clone();
         // Patches heard during the call, as well as those at its start.
         let mut tgs = talkgroups(&call);
         for t in talkgroups(&started) {
@@ -270,6 +270,7 @@ mod tests {
         CallInfo {
             id,
             system: 0,
+            short_name: "sys1".into(),
             talkgroup: tg,
             talkgroup_tag: format!("TG {tg}"),
             freq_hz: 851012500,
@@ -327,6 +328,20 @@ mod tests {
         let (s, url) = udp();
         testing::run::<SimpleStream>([hello(json!([{ "url": url, "TGID": 0, "sendTGID": true }])), audio(7, 58914, &[5])]);
         assert_eq!(recv(&s).unwrap(), [0x22, 0xe6, 0, 0, 5, 0]);
+    }
+
+    /// The dashboard hears what was sent where.
+    #[test]
+    fn metrics_say_what_was_sent() {
+        let (s, url) = udp();
+        let out = testing::run::<SimpleStream>([hello(json!([{ "url": url, "TGID": 0, "shortName": "sys1" }])), audio(1, 101, &[1, 2, 3])]);
+        assert!(recv(&s).is_some());
+        let m = out.metrics();
+        let last = m.last().expect("a metrics message");
+        assert_eq!(last.endpoints[0].name, url);
+        assert_eq!(last.endpoints[0].state, trunk_recorder_plugin::EndpointState::Up);
+        assert!(last.bytes_sent.unwrap() > 0);
+        assert_eq!(last.extra["packetsSent"], 1);
     }
 
     #[test]

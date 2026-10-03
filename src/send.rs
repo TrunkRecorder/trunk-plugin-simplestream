@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use trunk_recorder_plugin::{Host, State};
+use trunk_recorder_plugin::{Endpoint, EndpointState, Host, Metrics, State};
 
 /// Packets waiting for a destination; beyond this they're dropped.
 const QUEUE: usize = 512;
@@ -58,16 +58,63 @@ impl fmt::Display for Dest {
     }
 }
 
-/// The plugin's status: the destinations it can't send to now, if any.
+/// Metrics go to the recorder's dashboard at most this often.
+const METRICS_EVERY: Duration = Duration::from_secs(10);
+
+/// What one destination has had.
+#[derive(Clone, Copy, Default)]
+struct Count {
+    packets: u64,
+    bytes: u64,
+    dropped: u64,
+}
+
+/// The plugin's status: the destinations it can't send to now, if any —
+/// and, for the dashboard, what each has been sent.
 #[derive(Clone)]
 pub struct Status {
     host: Host,
     problems: Arc<Mutex<BTreeMap<String, String>>>,
+    counts: Arc<Mutex<BTreeMap<String, Count>>>,
+    reported: Arc<Mutex<Option<Instant>>>,
 }
 
 impl Status {
     pub fn new(host: Host) -> Status {
-        Status { host, problems: Default::default() }
+        Status { host, problems: Default::default(), counts: Default::default(), reported: Default::default() }
+    }
+
+    fn count(&self, dest: &str, f: impl FnOnce(&mut Count)) {
+        f(self.counts.lock().unwrap().entry(dest.to_string()).or_default());
+        let mut r = self.reported.lock().unwrap();
+        if r.is_none_or(|t| t.elapsed() >= METRICS_EVERY) {
+            *r = Some(Instant::now());
+            drop(r);
+            self.host.metrics(&self.metrics());
+        }
+    }
+
+    /// The dashboard's figures: bytes sent, each destination's state, packets sent and dropped.
+    pub fn metrics(&self) -> Metrics {
+        let counts = self.counts.lock().unwrap().clone();
+        let problems = self.problems.lock().unwrap().clone();
+        let total = |f: fn(&Count) -> u64| counts.values().map(f).sum::<u64>();
+        let endpoints = counts
+            .iter()
+            .map(|(dest, c)| {
+                let problem = problems.get(dest);
+                let state = match problem {
+                    Some(_) => EndpointState::Down,
+                    None if c.packets > 0 => EndpointState::Up,
+                    None => EndpointState::Unknown,
+                };
+                Endpoint { name: dest.clone(), state, last_error: problem.cloned().unwrap_or_default(), ..Default::default() }
+            })
+            .collect();
+        let mut extra = BTreeMap::new();
+        extra.insert("packetsSent".to_string(), total(|c| c.packets).into());
+        extra.insert("packetsDropped".to_string(), total(|c| c.dropped).into());
+        Metrics { bytes_sent: Some(total(|c| c.bytes)), endpoints, extra, ..Default::default() }
     }
 
     fn set(&self, dest: &str, problem: Option<String>) {
@@ -96,18 +143,23 @@ impl Status {
 pub struct Sender {
     tx: SyncSender<Vec<u8>>,
     thread: JoinHandle<()>,
+    name: String,
+    status: Status,
 }
 
 impl Sender {
     pub fn start(dest: Dest, status: Status) -> Sender {
         let (tx, rx) = mpsc::sync_channel(QUEUE);
-        let thread = std::thread::Builder::new().name(format!("send {dest}")).spawn(move || run(&dest, rx, &status)).expect("thread");
-        Sender { tx, thread }
+        let (name, st) = (dest.to_string(), status.clone());
+        let thread = std::thread::Builder::new().name(format!("send {dest}")).spawn(move || run(&dest, rx, &st)).expect("thread");
+        Sender { tx, thread, name, status }
     }
 
     /// Queue a packet (dropped when the destination is behind).
     pub fn send(&self, p: Vec<u8>) {
-        let _ = self.tx.try_send(p);
+        if self.tx.try_send(p).is_err() {
+            self.status.count(&self.name, |c| c.dropped += 1);
+        }
     }
 
     /// Send what's queued, until `deadline`.
@@ -141,10 +193,16 @@ fn run(dest: &Dest, rx: Receiver<Vec<u8>>, status: &Status) {
                 }
             }
             if let Some(c) = conn.as_mut() {
-                if let Err(e) = c.write_all(&p) {
-                    status.set(&name, Some(format!("{name}: {e}")));
-                    conn = None;
-                    retry_at = Instant::now() + Duration::from_secs(1);
+                match c.write_all(&p) {
+                    Ok(()) => status.count(&name, |c| {
+                        c.packets += 1;
+                        c.bytes += p.len() as u64;
+                    }),
+                    Err(e) => {
+                        status.set(&name, Some(format!("{name}: {e}")));
+                        conn = None;
+                        retry_at = Instant::now() + Duration::from_secs(1);
+                    }
                 }
             }
         }
@@ -165,7 +223,13 @@ fn run(dest: &Dest, rx: Receiver<Vec<u8>>, status: &Status) {
             }
             if let Some((s, to)) = &target {
                 match s.send_to(&p, to) {
-                    Ok(_) => status.set(&name, None),
+                    Ok(_) => {
+                        status.set(&name, None);
+                        status.count(&name, |c| {
+                            c.packets += 1;
+                            c.bytes += p.len() as u64;
+                        });
+                    }
                     Err(e) => status.set(&name, Some(format!("{name}: {e}"))),
                 }
             }
