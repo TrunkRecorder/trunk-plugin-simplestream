@@ -1,7 +1,7 @@
 [package]
 name = "simplestream"
 version = "0.1.2"
-edition = "2021"
+edition = "2024"
 description = "Streams the audio of calls as they're recorded to other programs, over UDP or TCP."
 license = "GPL-3.0-or-later"
 repository = "https://github.com/TrunkRecorder/trunk-plugin-simplestream"
