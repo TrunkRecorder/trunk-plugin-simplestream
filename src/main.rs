@@ -9,8 +9,8 @@ use std::time::Duration;
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
-use trunk_recorder_plugin::{base64, topic, AudioChunk, CallInfo, Host, Manifest, Plugin, Setup};
+use serde_json::{Value, json};
+use trunk_recorder_plugin::{AudioChunk, CallInfo, Host, Manifest, Plugin, Setup, base64, topic};
 
 use send::{Dest, Sender};
 
@@ -255,7 +255,7 @@ mod tests {
     use std::io::Read;
     use std::net::{TcpListener, UdpSocket};
     use trunk_recorder_plugin::testing;
-    use trunk_recorder_plugin::{HostMessage, EXIT_CONFIG};
+    use trunk_recorder_plugin::{EXIT_CONFIG, HostMessage};
 
     fn call(id: u32, tg: u32, patched: Vec<u32>) -> CallInfo {
         CallInfo {
