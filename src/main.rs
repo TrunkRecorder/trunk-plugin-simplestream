@@ -4,7 +4,8 @@
 
 mod send;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use std::time::Duration;
 
 use schemars::JsonSchema;
@@ -24,7 +25,7 @@ struct Config {
 }
 
 /// Stream
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, Default)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, Default)]
 #[serde(default)]
 struct Stream {
     /// Send to
@@ -96,6 +97,20 @@ impl Stream {
 struct Out {
     stream: Stream,
     sender: Sender,
+    /// A system's own stream (it overrides the streams): for it alone.
+    only: Option<String>,
+    /// The systems with streams of their own, which the recorder's streams aren't for.
+    not: Arc<HashSet<String>>,
+}
+
+impl Out {
+    fn wants_system(&self, short_name: &str) -> bool {
+        self.stream.wants_system(short_name)
+            && match &self.only {
+                Some(o) => o == short_name,
+                None => !self.not.contains(short_name),
+            }
+    }
 }
 
 struct SimpleStream {
@@ -117,20 +132,36 @@ impl Plugin for SimpleStream {
     }
 
     fn start(host: Host, setup: Setup<Config, Self::SystemConfig>) -> Result<Self, String> {
-        if setup.config.streams.is_empty() {
+        // Systems can override the streams: theirs are for them alone.
+        let own: Vec<(&str, &Vec<Stream>)> =
+            setup.systems.iter().filter(|s| s.settings.streams != setup.config.streams).map(|s| (s.short_name.as_str(), &s.settings.streams)).collect();
+        if setup.config.streams.is_empty() && own.iter().all(|(_, v)| v.is_empty()) {
             return Err("Add a stream: where to send audio, and which talkgroup's.".into());
         }
+        let not: Arc<HashSet<String>> = Arc::new(own.iter().map(|(n, _)| n.to_string()).collect());
         let status = send::Status::new(host.clone());
         let mut outs = Vec::new();
-        for (i, s) in setup.config.streams.iter().enumerate() {
-            let dest = s.dest().map_err(|e| format!("Stream {}: {e}", i + 1))?;
+        let all = setup.config.streams.iter().map(|s| (None, s));
+        let theirs = own.iter().flat_map(|(n, v)| v.iter().map(move |s| (Some(*n), s)));
+        let mut counts: HashMap<Option<&str>, usize> = HashMap::new();
+        for (only, s) in all.chain(theirs) {
+            let i = *counts.entry(only).and_modify(|n| *n += 1).or_insert(1);
+            let which = match only {
+                Some(n) => format!("{n}'s stream {i}"),
+                None => format!("stream {i}"),
+            };
+            let dest = s.dest().map_err(|e| format!("{}: {e}", capitalize(&which)))?;
             if !s.short_name.is_empty() && setup.system_named(&s.short_name).is_none() {
-                host.warn(format!("stream {}: there's no system called {}", i + 1, s.short_name));
+                host.warn(format!("{which}: there's no system called {}", s.short_name));
             }
             let what = if s.tgid == 0 { "every talkgroup".to_string() } else { format!("talkgroup {}", s.tgid) };
-            let of = if s.short_name.is_empty() { String::new() } else { format!(" of {}", s.short_name) };
+            let of = match (only, s.short_name.is_empty()) {
+                (Some(n), _) => format!(" of {n}"),
+                (None, false) => format!(" of {}", s.short_name),
+                (None, true) => String::new(),
+            };
             host.info(format!("streaming {what}{of} to {dest}"));
-            outs.push(Out { stream: s.clone(), sender: Sender::start(dest, status.clone()) });
+            outs.push(Out { stream: s.clone(), sender: Sender::start(dest, status.clone()), only: only.map(String::from), not: not.clone() });
         }
         Ok(SimpleStream { outs, calls: HashMap::new() })
     }
@@ -141,7 +172,7 @@ impl Plugin for SimpleStream {
         }
         let short_name = call.short_name.clone();
         let talkgroups = talkgroups(&call);
-        for o in self.outs.iter().filter(|o| o.stream.send_json && o.stream.send_call_start && o.stream.wants_system(&short_name)) {
+        for o in self.outs.iter().filter(|o| o.stream.send_json && o.stream.send_call_start && o.wants_system(&short_name)) {
             if o.stream.talkgroup_of(&talkgroups).is_some() {
                 let tags: Vec<&str> = if call.talkgroup_tag.is_empty() { vec![] } else { vec![call.talkgroup_tag.as_str()] };
                 let j = json!({
@@ -166,7 +197,7 @@ impl Plugin for SimpleStream {
         let call = self.calls.get(&chunk.call_id);
         let short_name = chunk.short_name.as_str();
         let talkgroups = call.map_or(vec![chunk.talkgroup], talkgroups);
-        for o in self.outs.iter().filter(|o| o.stream.wants_system(short_name)) {
+        for o in self.outs.iter().filter(|o| o.wants_system(short_name)) {
             let Some(tg) = o.stream.talkgroup_of(&talkgroups) else { continue };
             let p = if o.stream.send_json {
                 let j = json!({
@@ -197,7 +228,7 @@ impl Plugin for SimpleStream {
                 tgs.push(t);
             }
         }
-        for o in self.outs.iter().filter(|o| o.stream.send_json && o.stream.send_call_end && o.stream.wants_system(&short_name)) {
+        for o in self.outs.iter().filter(|o| o.stream.send_json && o.stream.send_call_end && o.wants_system(&short_name)) {
             if o.stream.talkgroup_of(&tgs).is_some() {
                 let j = json!({
                     "talkgroup": call.talkgroup,
@@ -243,6 +274,12 @@ fn packet(j: Option<&Value>, tgid: Option<u32>, pcm: &[u8]) -> Vec<u8> {
     }
     p.extend_from_slice(pcm);
     p
+}
+
+/// "stream 1" → "Stream 1".
+fn capitalize(s: &str) -> String {
+    let mut c = s.chars();
+    c.next().map_or(String::new(), |f| f.to_uppercase().chain(c).collect())
 }
 
 fn main() {
@@ -407,5 +444,29 @@ mod tests {
         assert_eq!(items["type"], "object");
         assert_eq!(items["title"], "Stream");
         assert_eq!(items["x-order"], json!(["url", "TGID", "shortName", "sendTGID", "sendJSON", "sendCallStart", "sendCallEnd"]));
+    }
+
+    /// A system with streams of its own: they're for it alone, and the
+    /// recorder's aren't for it.
+    #[test]
+    fn a_system_overrides_the_streams() {
+        let ((all, all_url), (own, own_url)) = (udp(), udp());
+        let mut h = testing::hello(&testing::temp_dir("simplestream"), json!({ "streams": [{ "url": all_url, "TGID": 0 }] }));
+        h.systems.push(trunk_recorder_plugin::SystemInfo {
+            index: 1,
+            short_name: "sys2".into(),
+            kind: "p25".into(),
+            settings: json!({ "streams": [{ "url": own_url, "TGID": 0 }] }),
+            ..Default::default()
+        });
+        let sys2 = HostMessage::Audio(AudioChunk { short_name: "sys2".into(), ..AudioChunk::new(2, 1, 202, 8000, &[2]) });
+        let out = testing::run::<SimpleStream>([HostMessage::Hello(h), audio(1, 101, &[1]), sys2]);
+        assert!(out.ready(), "{:?}", out.messages);
+        assert_eq!(recv(&all).unwrap(), [1, 0]);
+        assert_eq!(recv(&own).unwrap(), [2, 0]);
+        all.set_read_timeout(Some(Duration::from_millis(100))).unwrap();
+        own.set_read_timeout(Some(Duration::from_millis(100))).unwrap();
+        assert!(recv(&all).is_none(), "sys2's audio went to the recorder's stream");
+        assert!(recv(&own).is_none(), "sys1's audio went to sys2's stream");
     }
 }

@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased]
+
+- A system can have streams of its own (the recorder's per-system override of the streams); they carry only its audio, and the recorder-wide streams no longer carry it.
+- Built with trunk-recorder-plugin 0.3.0.
+
 ## [0.1.1]
 
 - A stream's system is chosen from a menu of the recorder's systems, and follows a system when it's renamed.
