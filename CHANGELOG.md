@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.1.4]
+
+- A system's sites: Trunk Recorder Pro now has systems with several sites, and
+  a call heard on more than one starts and ends once, its live audio coming
+  from whichever site's copy has it. Audio from a copy that wasn't the one
+  that started now still finds its call (its patched talkgroups, radio and
+  frequency), also when that first copy wasn't recorded.
+- Built with trunk-recorder-plugin 0.4.0.
+
 ## [0.1.3]
 
 - A system can have streams of its own (the recorder's per-system override of the streams); they carry only its audio, and the recorder-wide streams no longer carry it.
