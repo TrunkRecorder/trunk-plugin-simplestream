@@ -115,7 +115,7 @@ impl Out {
 
 struct SimpleStream {
     outs: Vec<Out>,
-    /// The calls recording now.
+    /// The calls going now (each once, however many sites hear it).
     calls: HashMap<u32, CallInfo>,
 }
 
@@ -167,7 +167,9 @@ impl Plugin for SimpleStream {
     }
 
     fn call_start(&mut self, call: CallInfo) {
+        // (Kept even when not recorded here: another site's copy of it may be, and its audio is this call's.)
         if !call.recording {
+            self.calls.insert(call.id, call);
             return;
         }
         let short_name = call.short_name.clone();
@@ -194,7 +196,10 @@ impl Plugin for SimpleStream {
 
     fn audio(&mut self, chunk: AudioChunk) {
         let pcm = base64::decode(&chunk.pcm);
-        let call = self.calls.get(&chunk.call_id);
+        // A call heard on several sites plays from whichever copy has it: one that wasn't
+        // told to start is the call that was (the same system and talkgroup).
+        let twin = || self.calls.values().find(|c| c.short_name == chunk.short_name && c.talkgroup == chunk.talkgroup);
+        let call = self.calls.get(&chunk.call_id).or_else(twin);
         let short_name = chunk.short_name.as_str();
         let talkgroups = call.map_or(vec![chunk.talkgroup], talkgroups);
         for o in self.outs.iter().filter(|o| o.wants_system(short_name)) {
@@ -370,6 +375,19 @@ mod tests {
         assert_eq!(last.endpoints[0].state, trunk_recorder_plugin::EndpointState::Up);
         assert!(last.bytes_sent.unwrap() > 0);
         assert_eq!(last.extra["packetsSent"], 1);
+    }
+
+    /// A call heard on several sites is started once, by its first site's copy (here not
+    /// recorded); its audio can come from another site's copy, with another id: it is still the call.
+    #[test]
+    fn audio_from_another_sites_copy() {
+        let (s, url) = udp();
+        let mut first = call(1, 101, vec![101, 202]);
+        first.recording = false;
+        testing::run::<SimpleStream>([hello(json!([{ "url": url, "TGID": 202, "sendJSON": true }])), HostMessage::CallStart(first), audio(9, 101, &[1])]);
+        let (a, pcm) = split(&recv(&s).unwrap());
+        assert_eq!((a["talkgroup"].clone(), a["src"].clone(), a["freq"].clone()), (json!(202), json!(1234), json!(851012500u64)), "{a}");
+        assert_eq!(pcm, [1, 0]);
     }
 
     #[test]

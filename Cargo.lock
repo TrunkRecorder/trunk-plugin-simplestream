@@ -162,7 +162,7 @@ dependencies = [
 
 [[package]]
 name = "simplestream"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "schemars",
  "serde",
@@ -183,9 +183,9 @@ dependencies = [
 
 [[package]]
 name = "trunk-recorder-plugin"
-version = "0.3.0"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "42f6a3ae3954c34ae02ca4a347777d30481ec4f6b456c6adc7bbe59e8117751e"
+checksum = "587edb957af1d5bd2cd1a8a0e362419d731d95b78e3ca4181a1494d0f8831753"
 dependencies = [
  "schemars",
  "serde",

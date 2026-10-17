@@ -27,6 +27,10 @@ A list of **streams**. Each sends some of the audio to one place:
 Talkgroup numbers repeat between systems, so stream each system to a port of
 its own, or turn on JSON (which names the system).
 
+A system can have several sites. A call heard on more than one is one call:
+its audio streams once, from whichever site's copy has it at the moment, and
+`short_name` is the system's.
+
 ## Packets
 
 Each packet is one slice of audio, with, depending on the settings:
