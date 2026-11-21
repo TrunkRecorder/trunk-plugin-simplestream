@@ -127,6 +127,8 @@ impl Plugin for SimpleStream {
         Manifest {
             name: "simplestream".into(),
             subscribe: vec![topic::AUDIO.into(), topic::CALL_START.into(), topic::CALL_END.into()],
+            // A system can have streams of its own.
+            system_overrides: vec!["streams".into()],
             ..trunk_recorder_plugin::manifest!()
         }
     }
@@ -456,7 +458,9 @@ mod tests {
 
     #[test]
     fn the_settings_form() {
-        let c = trunk_recorder_plugin::describe::<SimpleStream>().config.unwrap();
+        let m = trunk_recorder_plugin::describe::<SimpleStream>();
+        assert_eq!(m.system_overrides, ["streams"]);
+        let c = m.config.unwrap();
         let items = &c["properties"]["streams"]["items"];
         assert_eq!(c["properties"]["streams"]["type"], "array");
         assert_eq!(items["type"], "object");

@@ -25,7 +25,9 @@ A list of **streams**. Each sends some of the audio to one place:
 | **Packets when calls end** | With JSON: also send one when a call ends. |
 
 Talkgroup numbers repeat between systems, so stream each system to a port of
-its own, or turn on JSON (which names the system).
+its own, or turn on JSON (which names the system). A system can also have
+streams of its own (its *shared settings* on its card in Setup): they're for it
+alone, and the recorder's aren't for it.
 
 A system can have several sites. A call heard on more than one is one call:
 its audio streams once, from whichever site's copy has it at the moment, and
