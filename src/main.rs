@@ -176,9 +176,9 @@ impl Plugin for SimpleStream {
         }
         let short_name = call.short_name.clone();
         let talkgroups = talkgroups(&call);
+        let tags = tags(&call);
         for o in self.outs.iter().filter(|o| o.stream.send_json && o.stream.send_call_start && o.wants_system(&short_name)) {
             if o.stream.talkgroup_of(&talkgroups).is_some() {
-                let tags: Vec<&str> = if call.talkgroup_tag.is_empty() { vec![] } else { vec![call.talkgroup_tag.as_str()] };
                 let j = json!({
                     "src": src(&call),
                     "src_tag": "",
@@ -204,10 +204,11 @@ impl Plugin for SimpleStream {
         let call = self.calls.get(&chunk.call_id).or_else(twin);
         let short_name = chunk.short_name.as_str();
         let talkgroups = call.map_or(vec![chunk.talkgroup], talkgroups);
+        let tags = call.map_or(vec![], tags);
         for o in self.outs.iter().filter(|o| o.wants_system(short_name)) {
             let Some(tg) = o.stream.talkgroup_of(&talkgroups) else { continue };
             let p = if o.stream.send_json {
-                let j = json!({
+                let mut j = json!({
                     "src": call.map_or(-1, src),
                     "src_tag": "",
                     "talkgroup": tg,
@@ -217,6 +218,10 @@ impl Plugin for SimpleStream {
                     "audio_sample_rate": chunk.sample_rate,
                     "event": "audio",
                 });
+                // (Left out when there are none, as Trunk Recorder's is: a receiver falls back to the numbers.)
+                if !tags.is_empty() {
+                    j["patched_talkgroup_tags"] = json!(tags);
+                }
                 packet(Some(&j), None, &pcm)
             } else {
                 packet(None, o.stream.send_tgid.then_some(tg), &pcm)
@@ -264,6 +269,13 @@ fn talkgroups(c: &CallInfo) -> Vec<u32> {
     v
 }
 
+/// The tags of [`talkgroups`], in its order: the call's own, then each one patched with it
+/// (a talkgroup with no tag is left out, as Trunk Recorder leaves it).
+fn tags(c: &CallInfo) -> Vec<String> {
+    let patched = c.patched_talkgroups.iter().zip(&c.patched_talkgroup_tags).filter(|&(&t, _)| t != c.talkgroup).map(|(_, tag)| tag);
+    std::iter::once(&c.talkgroup_tag).chain(patched).filter(|t| !t.is_empty()).cloned().collect()
+}
+
 /// The radio talking (the last heard), or -1.
 fn src(c: &CallInfo) -> i64 {
     c.units.last().map_or(-1, |&u| u as i64)
@@ -302,6 +314,7 @@ mod tests {
     use trunk_recorder_plugin::{EXIT_CONFIG, HostMessage};
 
     fn call(id: u32, tg: u32, patched: Vec<u32>) -> CallInfo {
+        let patched_tags = patched.iter().map(|t| format!("TG {t}")).collect();
         CallInfo {
             id,
             system: 0,
@@ -312,6 +325,7 @@ mod tests {
             recording: true,
             units: vec![1234],
             patched_talkgroups: patched,
+            patched_talkgroup_tags: patched_tags,
             ..Default::default()
         }
     }
@@ -408,11 +422,14 @@ mod tests {
         assert_eq!(start["event"], "call_start");
         assert_eq!(start["talkgroup"], 101);
         assert_eq!(start["patched_talkgroups"], json!([101, 202]));
+        assert_eq!(start["talkgroup_tag"], "TG 101");
+        assert_eq!(start["patched_talkgroup_tags"], json!(["TG 101", "TG 202"]));
         assert_eq!(start["src"], 1234);
         assert_eq!(start["short_name"], "sys1");
         let (a, pcm) = split(&recv(&s).unwrap());
         assert_eq!(a["event"], "audio");
-        // The talkgroup this stream is for.
+        // The talkgroup this stream is for, and the tags a call start has.
+        assert_eq!(a["patched_talkgroup_tags"], start["patched_talkgroup_tags"]);
         assert_eq!(a["talkgroup"], 202);
         assert_eq!(a["audio_sample_rate"], 8000);
         assert_eq!(a["freq"], 851012500u64);
@@ -420,6 +437,32 @@ mod tests {
         let (e, _) = split(&recv(&s).unwrap());
         assert_eq!(e["event"], "call_end");
         assert_eq!(e["patched_talkgroups"], json!([101, 202]));
+    }
+
+    /// Audio alone (no call start packets) names its talkgroups: the call's own when it isn't
+    /// patched, each one patched with it when it is. A receiver that names a transmission by them
+    /// would otherwise be left with the numbers; with none known, the key is left out.
+    #[test]
+    fn audio_names_its_talkgroups() {
+        let (s, url) = udp();
+        let mut untagged = call(3, 303, vec![]);
+        untagged.talkgroup_tag = String::new();
+        // (Patched with 202, which has no tag: it's left out.)
+        let mut half = call(4, 404, vec![202, 404]);
+        half.patched_talkgroup_tags = vec![String::new(), "TG 404".into()];
+        testing::run::<SimpleStream>([
+            hello(json!([{ "url": url, "TGID": 0, "sendJSON": true }])),
+            HostMessage::CallStart(call(1, 101, vec![])),
+            HostMessage::CallStart(call(2, 101, vec![101, 202])),
+            HostMessage::CallStart(untagged),
+            HostMessage::CallStart(half),
+            audio(1, 101, &[1]),
+            audio(2, 101, &[1]),
+            audio(3, 303, &[1]),
+            audio(4, 404, &[1]),
+        ]);
+        let tags: Vec<Value> = (0..4).map(|_| split(&recv(&s).unwrap()).0.get("patched_talkgroup_tags").cloned().unwrap_or(Value::Null)).collect();
+        assert_eq!(tags, [json!(["TG 101"]), json!(["TG 101", "TG 202"]), Value::Null, json!(["TG 404"])]);
     }
 
     #[test]
