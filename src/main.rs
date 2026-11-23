@@ -126,7 +126,7 @@ impl Plugin for SimpleStream {
     fn manifest() -> Manifest {
         Manifest {
             name: "simplestream".into(),
-            subscribe: vec![topic::AUDIO.into(), topic::CALL_START.into(), topic::CALL_END.into()],
+            subscribe: vec![topic::AUDIO.into(), topic::CALL_START.into(), topic::CALL_UPDATE.into(), topic::CALL_END.into()],
             // A system can have streams of its own.
             system_overrides: vec!["streams".into()],
             ..trunk_recorder_plugin::manifest!()
@@ -194,6 +194,13 @@ impl Plugin for SimpleStream {
             }
         }
         self.calls.insert(call.id, call);
+    }
+
+    /// The call as it is now: the radio talking, and its name, as the recorder has them.
+    fn call_update(&mut self, call: CallInfo) {
+        if let Some(c) = self.calls.get_mut(&call.id) {
+            *c = call;
+        }
     }
 
     fn audio(&mut self, chunk: AudioChunk) {
@@ -443,6 +450,27 @@ mod tests {
         let (e, _) = split(&recv(&s).unwrap());
         assert_eq!(e["event"], "call_end");
         assert_eq!(e["patched_talkgroups"], json!([101, 202]));
+    }
+
+    /// A call's update says who is talking now: the audio after it names that radio, as the
+    /// recorder's simplestream does; the call's start didn't know them.
+    #[test]
+    fn the_talking_radio_follows_the_call() {
+        let (s, url) = udp();
+        let mut later = call(1, 101, vec![]);
+        later.units = vec![1234, 5678];
+        later.sources = vec![
+            CallSource { unit: 1234, tag: "Engine 5".into(), ..Default::default() },
+            CallSource { unit: 5678, tag: "Medic 2".into(), ..Default::default() },
+        ];
+        testing::run::<SimpleStream>([
+            hello(json!([{ "url": url, "TGID": 0, "sendJSON": true }])),
+            HostMessage::CallStart(call(1, 101, vec![])),
+            HostMessage::CallUpdate(later),
+            audio(1, 101, &[1]),
+        ]);
+        let (a, _) = split(&recv(&s).unwrap());
+        assert_eq!((a["src"].clone(), a["src_tag"].clone()), (json!(5678), json!("Medic 2")), "{a}");
     }
 
     /// Audio alone (no call start packets) names its talkgroups: the call's own when it isn't
