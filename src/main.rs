@@ -181,7 +181,7 @@ impl Plugin for SimpleStream {
             if o.stream.talkgroup_of(&talkgroups).is_some() {
                 let j = json!({
                     "src": src(&call),
-                    "src_tag": "",
+                    "src_tag": src_tag(&call),
                     "talkgroup": call.talkgroup,
                     "talkgroup_tag": call.talkgroup_tag,
                     "patched_talkgroups": talkgroups,
@@ -210,7 +210,7 @@ impl Plugin for SimpleStream {
             let p = if o.stream.send_json {
                 let mut j = json!({
                     "src": call.map_or(-1, src),
-                    "src_tag": "",
+                    "src_tag": call.map_or(String::new(), src_tag),
                     "talkgroup": tg,
                     "patched_talkgroups": talkgroups,
                     "freq": call.map_or(0, |c| c.freq_hz),
@@ -281,6 +281,12 @@ fn src(c: &CallInfo) -> i64 {
     c.units.last().map_or(-1, |&u| u as i64)
 }
 
+/// The name of the radio talking, as [`src`] names it, from the call's sources; empty when none is known.
+fn src_tag(c: &CallInfo) -> String {
+    let Some(&u) = c.units.last() else { return String::new() };
+    c.sources.iter().rev().find(|s| s.unit == u).map(|s| s.tag.clone()).unwrap_or_default()
+}
+
 /// A packet: [JSON length (u32 LE), JSON] or [talkgroup (u32 LE)], then the samples.
 fn packet(j: Option<&Value>, tgid: Option<u32>, pcm: &[u8]) -> Vec<u8> {
     let mut p = Vec::with_capacity(pcm.len() + 256);
@@ -311,7 +317,7 @@ mod tests {
     use std::io::Read;
     use std::net::{TcpListener, UdpSocket};
     use trunk_recorder_plugin::testing;
-    use trunk_recorder_plugin::{EXIT_CONFIG, HostMessage};
+    use trunk_recorder_plugin::{CallSource, EXIT_CONFIG, HostMessage};
 
     fn call(id: u32, tg: u32, patched: Vec<u32>) -> CallInfo {
         let patched_tags = patched.iter().map(|t| format!("TG {t}")).collect();
@@ -463,6 +469,27 @@ mod tests {
         ]);
         let tags: Vec<Value> = (0..4).map(|_| split(&recv(&s).unwrap()).0.get("patched_talkgroup_tags").cloned().unwrap_or(Value::Null)).collect();
         assert_eq!(tags, [json!(["TG 101"]), json!(["TG 101", "TG 202"]), Value::Null, json!(["TG 404"])]);
+    }
+
+    /// The radio talking (the last heard) is named by the call's sources, on call start and audio.
+    #[test]
+    fn the_talking_radio_is_named() {
+        let (s, url) = udp();
+        let mut c = call(1, 101, vec![]);
+        c.units = vec![1234, 5678];
+        c.sources = vec![
+            CallSource { unit: 1234, tag: "Engine 5".into(), ..Default::default() },
+            CallSource { unit: 5678, tag: "Medic 2".into(), ..Default::default() },
+        ];
+        testing::run::<SimpleStream>([
+            hello(json!([{ "url": url, "TGID": 0, "sendJSON": true, "sendCallStart": true }])),
+            HostMessage::CallStart(c),
+            audio(1, 101, &[1]),
+        ]);
+        let (start, _) = split(&recv(&s).unwrap());
+        assert_eq!((start["src"].clone(), start["src_tag"].clone()), (json!(5678), json!("Medic 2")), "{start}");
+        let (a, _) = split(&recv(&s).unwrap());
+        assert_eq!((a["src"].clone(), a["src_tag"].clone()), (json!(5678), json!("Medic 2")), "{a}");
     }
 
     #[test]

@@ -6,6 +6,8 @@
   talkgroups patched with it; none when no tag is known), as Trunk Recorder's simplestream can, so a receiver that
   names a transmission by them needs no call start packets. A call start's list now has every patched talkgroup's tag,
   not only the call's own.
+- `src_tag` (the name of the radio talking, from the call's sources) is filled in on call starts and audio packets,
+  where it was always empty. It's empty when the call's sources didn't have a name when the call started.
 - Needs trunk-recorder-plugin 0.15.1, which tells it the tags of a call's patched talkgroups.
 
 ## [0.1.5]
