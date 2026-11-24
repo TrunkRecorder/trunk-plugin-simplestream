@@ -184,7 +184,8 @@ dependencies = [
 [[package]]
 name = "trunk-recorder-plugin"
 version = "0.15.1"
-source = "git+https://github.com/TrunkRecorder/trunk-recorder-pro?branch=patched-talkgroups-named#abb8b128ad9637f9e75a02db997274f00448bd48"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dca0b4ec6822d1be1b66fb40cc06c32d36ddbabd86ea3cf86c75c04665711b4f"
 dependencies = [
  "schemars",
  "serde",
