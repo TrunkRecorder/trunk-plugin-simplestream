@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.1.7]
 
 - Audio packets with JSON now carry `patched_talkgroup_tags` (the call's own talkgroup's tag, then those of the
   talkgroups patched with it; none when no tag is known), as Trunk Recorder's simplestream can, so a receiver that
@@ -9,7 +9,7 @@
 - `src` and `src_tag` (the radio talking, and its name, from the call's sources) follow the call as it's updated,
   as Trunk Recorder's simplestream does, instead of staying as they were when the call started. `src_tag` was
   always empty before.
-- Needs trunk-recorder-plugin 0.15.1, which tells it the tags of a call's patched talkgroups.
+- Built with trunk-recorder-plugin 0.15.1, which names the talkgroups patched with a call (`CallInfo.patched`).
 
 ## [0.1.5]
 
