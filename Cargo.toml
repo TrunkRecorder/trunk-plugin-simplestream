@@ -10,7 +10,7 @@ publish = false
 
 [dependencies]
 # Until trunk-recorder-plugin 0.15.1 is on crates.io: the SDK from the Trunk Recorder Pro branch that has it.
-trunk-recorder-plugin = { git = "https://github.com/aknitt-rsos/trunk-recorder-pro", branch = "patched-talkgroup-tags" }
+trunk-recorder-plugin = { git = "https://github.com/TrunkRecorder/trunk-recorder-pro", branch = "patched-talkgroups-named" }
 schemars = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

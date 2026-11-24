@@ -279,8 +279,7 @@ fn talkgroups(c: &CallInfo) -> Vec<u32> {
 /// The tags of [`talkgroups`], in its order: the call's own, then each one patched with it
 /// (a talkgroup with no tag is left out, as Trunk Recorder leaves it).
 fn tags(c: &CallInfo) -> Vec<String> {
-    let patched = c.patched_talkgroups.iter().zip(&c.patched_talkgroup_tags).filter(|&(&t, _)| t != c.talkgroup).map(|(_, tag)| tag);
-    std::iter::once(&c.talkgroup_tag).chain(patched).filter(|t| !t.is_empty()).cloned().collect()
+    std::iter::once(&c.talkgroup_tag).chain(c.patched.iter().map(|p| &p.alpha_tag)).filter(|t| !t.is_empty()).cloned().collect()
 }
 
 /// The radio talking (the last heard), or -1.
@@ -324,10 +323,10 @@ mod tests {
     use std::io::Read;
     use std::net::{TcpListener, UdpSocket};
     use trunk_recorder_plugin::testing;
-    use trunk_recorder_plugin::{CallSource, EXIT_CONFIG, HostMessage};
+    use trunk_recorder_plugin::{CallSource, EXIT_CONFIG, HostMessage, TalkgroupName};
 
     fn call(id: u32, tg: u32, patched: Vec<u32>) -> CallInfo {
-        let patched_tags = patched.iter().map(|t| format!("TG {t}")).collect();
+        let named = patched.iter().filter(|&&t| t != tg).map(|&t| TalkgroupName { talkgroup: t, alpha_tag: format!("TG {t}") }).collect();
         CallInfo {
             id,
             system: 0,
@@ -338,7 +337,7 @@ mod tests {
             recording: true,
             units: vec![1234],
             patched_talkgroups: patched,
-            patched_talkgroup_tags: patched_tags,
+            patched: named,
             ..Default::default()
         }
     }
@@ -483,7 +482,7 @@ mod tests {
         untagged.talkgroup_tag = String::new();
         // (Patched with 202, which has no tag: it's left out.)
         let mut half = call(4, 404, vec![202, 404]);
-        half.patched_talkgroup_tags = vec![String::new(), "TG 404".into()];
+        half.patched[0].alpha_tag = String::new();
         testing::run::<SimpleStream>([
             hello(json!([{ "url": url, "TGID": 0, "sendJSON": true }])),
             HostMessage::CallStart(call(1, 101, vec![])),
