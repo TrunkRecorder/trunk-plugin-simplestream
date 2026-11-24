@@ -42,9 +42,12 @@ Each packet is one slice of audio, with, depending on the settings:
 - **JSON:** its length in 4 bytes, little-endian, then the JSON, then the audio:
 
   ```json
-  {"audio_sample_rate":8000,"event":"audio","freq":851012500,"patched_talkgroups":[101],
-   "short_name":"county","src":1234,"src_tag":"","talkgroup":101}
+  {"audio_sample_rate":8000,"event":"audio","freq":851012500,"patched_talkgroup_tags":["Fire Dispatch"],
+   "patched_talkgroups":[101],"short_name":"county","src":1234,"src_tag":"","talkgroup":101}
   ```
+
+  `patched_talkgroup_tags` is the tag of the call's talkgroup, then of each one
+  patched with it (one with no tag is left out); it's missing when none has a tag.
 
   A call start is the same with `"event":"call_start"` (plus `talkgroup_tag`
   and `patched_talkgroup_tags`) and no audio; a call end has `talkgroup`,
